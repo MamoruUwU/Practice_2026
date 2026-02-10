@@ -4,21 +4,22 @@
 #include <chrono>
 #include <mutex>
 #include <cmath>
+#include <conio.h>
 
 using namespace std;
 
-// Константи
+// Constants
 const int WIDTH = 100;
 const int HEIGHT = 30;
 const int SPEED = 1;
 const int DELAY_MS = 100;
 const int RADIUS = 10;
 
-// М'ютекс для синхронізації виводу
+// Mutex for synchronized console output
 mutex printMutex;
 
 /* =========================
-   МУРАХА-РОБОЧА
+   WORKER ANT
    ========================= */
 class WorkerAnt {
 public:
@@ -36,7 +37,7 @@ public:
         while (true) {
             {
                 lock_guard<mutex> lock(printMutex);
-                cout << name << " (робоча) x=" << x << " y=" << y << endl;
+                cout << name << " (worker) x=" << x << " y=" << y << endl;
             }
 
             if (goingToCorner) {
@@ -59,27 +60,27 @@ public:
 };
 
 /* =========================
-   МУРАХА-ВОЇН
+   WARRIOR ANT
    ========================= */
 class WarriorAnt {
 public:
     string name;
     double angle;
     int centerX, centerY;
-    int R;
+    int radius;
 
     WarriorAnt(string name, int cx, int cy, int r)
         : name(name), angle(0.0),
-          centerX(cx), centerY(cy), R(r) {}
+          centerX(cx), centerY(cy), radius(r) {}
 
     void move() {
         while (true) {
-            int x = centerX + static_cast<int>(R * cos(angle));
-            int y = centerY + static_cast<int>(R * sin(angle));
+            int x = centerX + static_cast<int>(radius * cos(angle));
+            int y = centerY + static_cast<int>(radius * sin(angle));
 
             {
                 lock_guard<mutex> lock(printMutex);
-                cout << name << " (воїн) x=" << x << " y=" << y << endl;
+                cout << name << " (warrior) x=" << x << " y=" << y << endl;
             }
 
             angle += 0.1 * SPEED;
@@ -113,6 +114,7 @@ int main() {
 
     for (auto& t : threads) {
         t.join();
+        
     }
 
     return 0;
