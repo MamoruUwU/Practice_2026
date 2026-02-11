@@ -1,145 +1,197 @@
 #include <iostream>
 #include <fstream>
-#include <vector>
 #include <cmath>
-#include <stdexcept>
+#include <string>
 
 using namespace std;
 
-struct Row {
-    double x, T, U;
+/* =======================
+   Exceptions
+   ======================= */
+
+class ErrorRange {
+public:
+    double x;
+    ErrorRange(double v) : x(v) {}
 };
 
-/* ---------- Зчитування таблиці ---------- */
-vector<Row> readTable(const string& filename) {
-    ifstream file(filename);
-    if (!file.is_open())
-        throw runtime_error("File not found");
+class ErrorNoFile {
+public:
+    string fname;
+    ErrorNoFile(string s) : fname(s) {}
+};
 
-    vector<Row> table;
-    Row r;
-    while (file >> r.x >> r.T >> r.U)
-        table.push_back(r);
+/* =======================
+   Linear interpolation
+   ======================= */
 
-    return table;
-}
+double interpolate(const string& filename, double x)
+{
+    if (x < -10 || x > 10)
+        throw ErrorRange(x);
 
-/* ---------- Лінійна інтерполяція ---------- */
-double interpolate(double x, const vector<Row>& table, bool isT) {
-    for (size_t i = 0; i + 1 < table.size(); ++i) {
-        if (table[i].x <= x && x <= table[i + 1].x) {
-            double x1 = table[i].x, x2 = table[i + 1].x;
-            double y1 = isT ? table[i].T : table[i].U;
-            double y2 = isT ? table[i + 1].T : table[i + 1].U;
-            return y1 + (y2 - y1) * (x - x1) / (x2 - x1);
-        }
+    ifstream in(filename);
+    if (!in)
+        throw ErrorNoFile(filename);
+
+    double x0, y0, x1, y1;
+
+    in >> x0 >> y0;
+
+    while (in >> x1 >> y1)
+    {
+        if (x == x0) return y0;
+
+        if (x0 < x && x < x1)
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+
+        x0 = x1;
+        y0 = y1;
     }
-    throw runtime_error("Interpolation error");
+
+    return y0;
 }
 
-/* ---------- T(x), U(x) ---------- */
-double Tfunc(double x) {
-    string file;
+/* =======================
+   T(x) and U(x)
+   ======================= */
+
+double T(double x)
+{
     if (fabs(x) <= 1)
-        file = "dat_X_1_1.dat";
-    else if (x < -1) {
-        x = 1 / x;
-        file = "dat_X00_1.dat";
-    } else {
-        x = 1 / x;
-        file = "dat_X1_00.dat";
-    }
+        return interpolate("dat_X_1_1.dat", x);
 
-    auto table = readTable(file);
-    return interpolate(x, table, true);
+    if (x < -1)
+        return interpolate("dat_X1_00.dat", -1.0 / x);
+
+    return interpolate("dat_X00_1.dat", -1.0 / x);
 }
 
-double Ufunc(double x) {
-    string file;
-    if (fabs(x) <= 1)
-        file = "dat_X_1_1.dat";
-    else if (x < -1) {
-        x = 1 / x;
-        file = "dat_X00_1.dat";
-    } else {
-        x = 1 / x;
-        file = "dat_X1_00.dat";
-    }
-
-    auto table = readTable(file);
-    return interpolate(x, table, false);
+double U(double x)
+{
+    return T(x);   // аналогічна логіка (за умовою використовуються ті ж файли)
 }
 
-/* ---------- Srz ---------- */
-double Srz(double x, double y, double z) {
+/* =======================
+   Algorithm 5 (fallback)
+   ======================= */
+
+double fun5(double x, double y, double z)
+{
+    return 4.349 * x * z + 23.23 * y - 2.348 * x * y * z;
+}
+
+/* =======================
+   Forward declarations
+   ======================= */
+
+double Rrz(double, double, double);
+double Krn(double, double, double);
+
+/* =======================
+   Srz
+   ======================= */
+
+double Srz(double x, double y, double z)
+{
     if (x > y)
-        return Tfunc(x) + Ufunc(z) - Tfunc(y);
+        return T(x) + U(z) - T(y);
     else
-        return Tfunc(y) + Ufunc(y) - Ufunc(z);
+        return T(y) + U(y) - U(z);
 }
 
-/* ---------- Gold ---------- */
-double Gold(double x, double y) {
-    if (x > y && y != 0)
-        return x / y;
-    if (x < y && x != 0)
-        return y / x;
-    throw runtime_error("Gold error");
+/* =======================
+   Srs
+   ======================= */
+
+double Srs(double x, double y, double z)
+{
+    if (z > y && z * z + x * y > 0)
+        return Srz(x,y,z) + y * sqrt(z*z + x*y);
+
+    if (z <= y && x*x + z*y > 0)
+        return y + Srz(z,x,y) * sqrt(x*x + z*y);
+
+    return fun5(x,y,z);
 }
 
-/* ---------- Glr ---------- */
-double Glr(double x, double y) {
-    double r = sqrt(x * x + y * y - 4);
+/* =======================
+   Qrz
+   ======================= */
+
+double Qrz(double x, double y)
+{
     if (fabs(x) < 1)
-        return x;
-    if (fabs(x) >= 1 && fabs(y) < 1)
-        return y;
-    if (fabs(x) >= 1 && fabs(y) >= 1 && r > 0.1)
-        return y * r;
-    throw runtime_error("Glr error");
+        return x * Srs(x,y,x);
+
+    return y * Srs(y,x,y);
 }
 
-/* ---------- Grs ---------- */
-double Grs(double x, double y) {
-    return 0.1389 * Srz(x + y, Gold(x, y), Glr(x, x * y))
-         + 1.8389 * Srz(x - y, Gold(y, x / 5), Glr(5 * x, x * y))
-         + 0.83   * Srz(x - 0.9, Glr(y, x / 5), Gold(5 * y, y));
+/* =======================
+   Rrz (Algorithm 1)
+   ======================= */
+
+double Rrz(double x, double y, double z)
+{
+    if (x > y)
+        return x * y * Qrz(y,z) - x;
+
+    return y * z * Qrz(x,y) + y;
 }
 
-/* ---------- Алгоритм 1 ---------- */
-double Algorithm1(double x, double y, double z) {
-    return x * x * Grs(y, z)
-         + y * y * Grs(x, z)
-         + 0.33 * x * y * Grs(x, z);
+/* =======================
+   Krn
+   ======================= */
+
+double Krn(double x, double y, double z)
+{
+    return 73.1389 * Rrz(x,y,z)
+         + 14.838  * Rrz(x-z, z, y);
 }
 
-/* ---------- Алгоритм 2 ---------- */
-double Algorithm2(double x, double y, double z) {
-    return x * (x + y)
-         + y * (y + z)
-         + z * (z + x);
+/* =======================
+   FUN (Algorithm 1)
+   ======================= */
+
+double fun(double x, double y, double z)
+{
+    return x * Krn(x,y,z)
+         + y * Krn(x,z,y)
+         - z * Krn(x,z,y);
 }
 
-/* ---------- Алгоритм 3 ---------- */
-double Algorithm3(double x, double y, double z) {
-    return 1.3498 * z + 2.2362 * y - 2.348 * x * y;
-}
+/* =======================
+   MAIN
+   ======================= */
 
-/* ---------- main ---------- */
-int main() {
-    double x, y, z;
+int main()
+{
+    double x,y,z;
+
+    cout << "Input x y z: ";
     cin >> x >> y >> z;
 
-    try {
-        cout << "fun = " << Algorithm1(x, y, z) << endl;
+    try
+    {
+        double f = fun(x,y,z);
+        cout << "fun(x,y,z) = " << f << endl;
     }
-    catch (...) {
-        try {
-            cout << "fun = " << Algorithm2(x, y, z) << endl;
-        }
-        catch (...) {
-            cout << "fun = " << Algorithm3(x, y, z) << endl;
-        }
+    catch(ErrorRange& e)
+    {
+        cout << "Range error. x=" << e.x << endl;
+        cout << "Using Algorithm 5..." << endl;
+        cout << "fun = " << fun5(x,y,z) << endl;
+    }
+    catch(ErrorNoFile& e)
+    {
+        cout << "File not found: " << e.fname << endl;
+        cout << "Using Algorithm 5..." << endl;
+        cout << "fun = " << fun5(x,y,z) << endl;
+    }
+    catch(...)
+    {
+        cout << "Unknown error. Using Algorithm 5..." << endl;
+        cout << "fun = " << fun5(x,y,z) << endl;
     }
 
     return 0;
